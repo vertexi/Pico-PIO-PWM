@@ -150,6 +150,8 @@ typedef struct pwm_pio {
     uint32_t duty_phase;
     uint32_t duty;
     uint32_t period;
+    bool phase_change;
+    uint32_t phase_period;
 } pwm_pio_t;
 
 pwm_pio_t pwm0 = {
@@ -159,7 +161,9 @@ pwm_pio_t pwm0 = {
     .dma_chan = 0,
     .duty_phase = 0x7FFFFFFEU,
     .duty = 0xFFFDU,
-    .period = 0xFFFEU
+    .period = 0xFFFEU,
+    .phase_change = false,
+    .phase_period = 0U
 };
 
 pwm_pio_t pwm1 = {
@@ -169,28 +173,36 @@ pwm_pio_t pwm1 = {
     .dma_chan = 1,
     .duty_phase = 0x7FFFFFFEU,
     .duty = 0xFFFDU,
-    .period = 0xFFFEU
+    .period = 0xFFFEU,
+    .phase_change = false,
+    .phase_period = 0U
 };
 
+static inline void pwm_pio_dma_handler(pwm_pio_t *pwm)
+{
+    if (dma_channel_get_irq0_status(pwm->dma_chan))
+    {
+        if (pwm->phase_change)
+        {
+            printf("T %d\n", pwm->phase_period);
+            // update new duty_phase
+            pwm->duty_phase = (pwm->duty << 16) + pwm->phase_period;
+            pwm->phase_change = false;
+        } else
+        {
+            // update new duty_phase
+            pwm->duty_phase = (pwm->duty << 16) + pwm->period;
+        }
+        // Clear the interrupt request.
+        dma_hw->ints0 = 1u << pwm->dma_chan;
+        // re-trigger dma
+        dma_channel_start(pwm->dma_chan);
+    }
+}
+
 void dma_handler() {
-    if (dma_channel_get_irq0_status(pwm0.dma_chan))
-    {
-        // update new duty_phase
-        pwm0.duty_phase = (pwm0.duty << 16) + pwm0.period;
-        // Clear the interrupt request.
-        dma_hw->ints0 = 1u << pwm0.dma_chan;
-        // re-trigger dma
-        dma_channel_start(pwm0.dma_chan);
-    }
-    else if (dma_channel_get_irq0_status(pwm1.dma_chan))
-    {
-        // update new duty_phase
-        pwm1.duty_phase = (pwm1.duty << 16) + pwm1.period;
-        // Clear the interrupt request.
-        dma_hw->ints0 = 1u << pwm1.dma_chan;
-        // re-trigger dma
-        dma_channel_start(pwm1.dma_chan);
-    }
+    pwm_pio_dma_handler(&pwm0);
+    pwm_pio_dma_handler(&pwm1);
 }
 
 void pwm_pio_dma_config(pwm_pio_t *pwm)
@@ -244,6 +256,9 @@ int main()
 
     pio_sm_set_enabled(pwm0.pio, pwm0.sm, true);
     pio_sm_set_enabled(pwm1.pio, pwm1.sm, true);
+
+    pwm1.phase_period = 0x7FFFU;
+    pwm1.phase_change = true;
 
     while(true)
     {
