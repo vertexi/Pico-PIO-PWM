@@ -171,39 +171,24 @@ void dma_handler() {
     dma_channel_start(pwm0.dma_chan);
 }
 
-int main()
+void pwm_pio_dma_config(pwm_pio_t *pwm)
 {
-    // initialize clocks, on-board LED, SMPS mode power supply
-    if (!init_system())
-    {
-        return 0;
-    }
-    printf("Hello, PWM!\n");
-
-    PIO pio;
-    uint sm;
-    uint dma_chan;
-    pio = pwm0.pio;
-    sm = pwm0.sm;
-    dma_chan = pwm0.dma_chan;
-    uint offset = pio_add_program(pio, &pwm_program);
-    printf("Loaded program at %d\n", offset);
-
-    pwm_program_init(pio, sm, offset, 17);
-
     // Configure a channel to write the same word (32 bits) repeatedly to PIO0
     // SM0's TX FIFO, paced by the data request signal from that peripheral.
-    dma_chan = dma_claim_unused_channel(true);
+    uint dma_chan = pwm->dma_chan;
     dma_channel_config c = dma_channel_get_default_config(dma_chan);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
     channel_config_set_read_increment(&c, false);
-    channel_config_set_dreq(&c, DREQ_PIO0_TX0);
 
+    uint dreq = pwm->pio == pio0 ? DREQ_PIO0_TX0 + pwm->sm : DREQ_PIO1_TX0 + pwm->sm;
+    channel_config_set_dreq(&c, dreq);
+
+    volatile void *pio_tx_buf = pwm->pio == pio0 ? &pio0_hw->txf[pwm->sm] : &pio1_hw->txf[pwm->sm];
     dma_channel_configure(
         dma_chan,
         &c,
-        &pio0_hw->txf[0], // Write address (only need to set this once)
-        &pwm0.duty_phase,       // Don't provide a read address yet
+        pio_tx_buf,       // Write address (only need to set this once)
+        &pwm->duty_phase, // Don't provide a read address yet
         1,                // Write the same value many times, then halt and interrupt
         false             // Don't start yet
     );
@@ -216,6 +201,25 @@ int main()
     irq_set_enabled(DMA_IRQ_0, true);
 
     dma_channel_start(dma_chan);
+}
+
+int main()
+{
+    // initialize clocks, on-board LED, SMPS mode power supply
+    if (!init_system())
+    {
+        return 0;
+    }
+    printf("Hello, PWM!\n");
+
+    PIO pio;
+    uint sm;
+    pio = pwm0.pio;
+    sm = pwm0.sm;
+    uint offset = pio_add_program(pio, &pwm_program);
+    pwm_program_init(pio, sm, offset, 17);
+
+    pwm_pio_dma_config(&pwm0);
 
     pio_sm_set_enabled(pio, sm, true);
 
