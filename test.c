@@ -143,12 +143,28 @@ uint8_t init_system()
 #include "pwm.pio.h"
 
 int dma_chan;
-uint32_t duty_phase = 0xFFFEFFFE;
-uint32_t duty =  0xFFFFu;
-uint32_t period = 0xFFFEu;
+typedef struct pwm_pio {
+    PIO pio;
+    uint sm;
+    uint pin;
+    uint dma_chan;
+    uint32_t duty_phase;
+    uint32_t duty;
+    uint32_t period;
+} pwm_pio_t;
+
+pwm_pio_t pwm0 = {
+    .pio = pio0,
+    .sm = 0,
+    .pin = 17,
+    .dma_chan = 0,
+    .duty_phase = 0x7FFFFFFEU,
+    .duty = 0xFFFEU,
+    .period = 0xFFFEU
+};
 
 void dma_handler() {
-    duty_phase = (duty << 16) + period;
+    pwm0.duty_phase = (pwm0.duty << 16) + pwm0.period;
 
     // Clear the interrupt request.
     dma_hw->ints0 = 1u << dma_chan;
@@ -165,8 +181,10 @@ int main()
     }
     printf("Hello, PWM!\n");
 
-    PIO pio = pio0;
-    int sm = 0;
+    PIO pio;
+    int sm;
+    pio = pwm0.pio;
+    sm = pwm0.sm;
     uint offset = pio_add_program(pio, &pwm_program);
     printf("Loaded program at %d\n", offset);
 
@@ -184,7 +202,7 @@ int main()
         dma_chan,
         &c,
         &pio0_hw->txf[0], // Write address (only need to set this once)
-        &duty_phase,       // Don't provide a read address yet
+        &pwm0.duty_phase,       // Don't provide a read address yet
         1,                // Write the same value many times, then halt and interrupt
         false             // Don't start yet
     );
