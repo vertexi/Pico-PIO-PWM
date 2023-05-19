@@ -142,7 +142,6 @@ uint8_t init_system()
 
 #include "pwm.pio.h"
 
-int dma_chan;
 typedef struct pwm_pio {
     PIO pio;
     uint sm;
@@ -167,9 +166,9 @@ void dma_handler() {
     pwm0.duty_phase = (pwm0.duty << 16) + pwm0.period;
 
     // Clear the interrupt request.
-    dma_hw->ints0 = 1u << dma_chan;
+    dma_hw->ints0 = 1u << pwm0.dma_chan;
     // re-trigger dma
-    dma_channel_start(dma_chan);
+    dma_channel_start(pwm0.dma_chan);
 }
 
 int main()
@@ -182,9 +181,11 @@ int main()
     printf("Hello, PWM!\n");
 
     PIO pio;
-    int sm;
+    uint sm;
+    uint dma_chan;
     pio = pwm0.pio;
     sm = pwm0.sm;
+    dma_chan = pwm0.dma_chan;
     uint offset = pio_add_program(pio, &pwm_program);
     printf("Loaded program at %d\n", offset);
 
