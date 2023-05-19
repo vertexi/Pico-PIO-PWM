@@ -158,17 +158,39 @@ pwm_pio_t pwm0 = {
     .pin = 17,
     .dma_chan = 0,
     .duty_phase = 0x7FFFFFFEU,
-    .duty = 0xFFFEU,
+    .duty = 0xFFFDU,
+    .period = 0xFFFEU
+};
+
+pwm_pio_t pwm1 = {
+    .pio = pio0,
+    .sm = 1,
+    .pin = 18,
+    .dma_chan = 1,
+    .duty_phase = 0x7FFFFFFEU,
+    .duty = 0xFFFDU,
     .period = 0xFFFEU
 };
 
 void dma_handler() {
-    pwm0.duty_phase = (pwm0.duty << 16) + pwm0.period;
-
-    // Clear the interrupt request.
-    dma_hw->ints0 = 1u << pwm0.dma_chan;
-    // re-trigger dma
-    dma_channel_start(pwm0.dma_chan);
+    if (dma_channel_get_irq0_status(pwm0.dma_chan))
+    {
+        // update new duty_phase
+        pwm0.duty_phase = (pwm0.duty << 16) + pwm0.period;
+        // Clear the interrupt request.
+        dma_hw->ints0 = 1u << pwm0.dma_chan;
+        // re-trigger dma
+        dma_channel_start(pwm0.dma_chan);
+    }
+    else if (dma_channel_get_irq0_status(pwm1.dma_chan))
+    {
+        // update new duty_phase
+        pwm1.duty_phase = (pwm1.duty << 16) + pwm1.period;
+        // Clear the interrupt request.
+        dma_hw->ints0 = 1u << pwm1.dma_chan;
+        // re-trigger dma
+        dma_channel_start(pwm1.dma_chan);
+    }
 }
 
 void pwm_pio_dma_config(pwm_pio_t *pwm)
@@ -212,16 +234,16 @@ int main()
     }
     printf("Hello, PWM!\n");
 
-    PIO pio;
-    uint sm;
-    pio = pwm0.pio;
-    sm = pwm0.sm;
-    uint offset = pio_add_program(pio, &pwm_program);
-    pwm_program_init(pio, sm, offset, 17);
+    uint offset = pio_add_program(pio0, &pwm_program);
+
+    pwm_program_init(pwm0.pio, pwm0.sm, offset, pwm0.pin);
+    pwm_program_init(pwm1.pio, pwm1.sm, offset, pwm1.pin);
 
     pwm_pio_dma_config(&pwm0);
+    pwm_pio_dma_config(&pwm1);
 
-    pio_sm_set_enabled(pio, sm, true);
+    pio_sm_set_enabled(pwm0.pio, pwm0.sm, true);
+    pio_sm_set_enabled(pwm1.pio, pwm1.sm, true);
 
     while(true)
     {
