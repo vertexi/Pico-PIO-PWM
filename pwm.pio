@@ -29,7 +29,6 @@ static inline void pwm_program_init(PIO pio, uint sm, uint offset, uint pin) {
     // out shift to right, auto-pull enable, 32 bit threshold for auto-pull
     sm_config_set_out_shift(&c, true, true, 32);
 
-    // float div = (float)clock_get_hz(clk_sys) / (8 * baud);
     float div = 1.0f;
     sm_config_set_clkdiv(&c, div);
 

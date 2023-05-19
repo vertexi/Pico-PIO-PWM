@@ -163,7 +163,6 @@ static inline void __time_critical_func(pwm_pio_dma_handler)(volatile pwm_pio_t 
     {
         if (pwm->phase_change)
         {
-            printf("T %d\n", pwm->dma_chan);
             // update new duty_phase
             pwm->duty_phase = (pwm->duty << 16) + pwm->phase_period;
             pwm->phase_change = false;
@@ -229,36 +228,36 @@ int  __time_critical_func(main)(void)
     printf("Hello, PWM!\n");
 
     uint offset = pio_add_program(pio0, &pwm_program);
-
+    // initialize pwms parameters
     for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
     {
         pwms[i].pio = pio0;
         pwms[i].sm = i;
         pwms[i].pin = 2 + i;
         pwms[i].dma_chan = i;
-        pwms[i].duty_phase = 0x7FFFFFFEU;
-        pwms[i].duty = 0xEFFEU;
-        pwms[i].period = 0xFFFEU;
+        pwms[i].duty_phase = 0x00001000U;
+        pwms[i].duty = 0xEFFU;
+        pwms[i].period = 0x1000U;
         pwms[i].phase_change = false;
         pwms[i].phase_period = 0U;
     }
-
-
+    // config and init state machines and dma
     for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
     {
         pwm_program_init(pwms[i].pio, pwms[i].sm, offset, pwms[i].pin);
         pwm_pio_dma_config(pwms + i);
     }
-
+    // simultaneously start state machines
     pio_enable_sm_mask_in_sync(pio0, 0b1111);
 
-    (pwms + 1)->phase_period = 0x3FFFU;
+    // phase control test
+    (pwms + 1)->phase_period = 0x3FFU;
     (pwms + 1)->phase_change = true;
 
-    (pwms + 2)->phase_period = 0x7FFFU;
+    (pwms + 2)->phase_period = 0x7FFU;
     (pwms + 2)->phase_change = true;
 
-    (pwms + 3)->phase_period = 0xBFFFU;
+    (pwms + 3)->phase_period = 0xBFFU;
     (pwms + 3)->phase_change = true;
 
     while(true)
