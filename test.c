@@ -143,48 +143,27 @@ uint8_t init_system()
 #include "pwm.pio.h"
 
 typedef struct pwm_pio {
-    PIO pio;
-    uint sm;
-    uint pin;
-    uint dma_chan;
-    uint32_t duty_phase;
-    uint32_t duty;
-    uint32_t period;
-    bool phase_change;
-    uint32_t phase_period;
+    volatile PIO pio;
+    volatile uint sm;
+    volatile uint pin;
+    volatile uint dma_chan;
+    volatile uint32_t duty_phase;
+    volatile uint32_t duty;
+    volatile uint32_t period;
+    volatile bool phase_change;
+    volatile uint32_t phase_period;
 } pwm_pio_t;
 
-pwm_pio_t pwm0 = {
-    .pio = pio0,
-    .sm = 0,
-    .pin = 17,
-    .dma_chan = 0,
-    .duty_phase = 0x7FFFFFFEU,
-    .duty = 0xFFFDU,
-    .period = 0xFFFEU,
-    .phase_change = false,
-    .phase_period = 0U
-};
+volatile pwm_pio_t pwms[4];
+#define NUM_OF_PWM_CHANNEL 4
 
-pwm_pio_t pwm1 = {
-    .pio = pio0,
-    .sm = 1,
-    .pin = 18,
-    .dma_chan = 1,
-    .duty_phase = 0x7FFFFFFEU,
-    .duty = 0xFFFDU,
-    .period = 0xFFFEU,
-    .phase_change = false,
-    .phase_period = 0U
-};
-
-static inline void pwm_pio_dma_handler(pwm_pio_t *pwm)
+static inline void __time_critical_func(pwm_pio_dma_handler)(volatile pwm_pio_t *pwm)
 {
     if (dma_channel_get_irq0_status(pwm->dma_chan))
     {
         if (pwm->phase_change)
         {
-            printf("T %d\n", pwm->phase_period);
+            printf("T %d\n", pwm->dma_chan);
             // update new duty_phase
             pwm->duty_phase = (pwm->duty << 16) + pwm->phase_period;
             pwm->phase_change = false;
@@ -200,12 +179,15 @@ static inline void pwm_pio_dma_handler(pwm_pio_t *pwm)
     }
 }
 
-void dma_handler() {
-    pwm_pio_dma_handler(&pwm0);
-    pwm_pio_dma_handler(&pwm1);
+void __time_critical_func(dma_handler)(void)
+{
+    pwm_pio_dma_handler(pwms + 0);
+    pwm_pio_dma_handler(pwms + 1);
+    pwm_pio_dma_handler(pwms + 2);
+    pwm_pio_dma_handler(pwms + 3);
 }
 
-void pwm_pio_dma_config(pwm_pio_t *pwm)
+void pwm_pio_dma_config(volatile pwm_pio_t *pwm)
 {
     // Configure a channel to write the same word (32 bits) repeatedly to PIO0
     // SM0's TX FIFO, paced by the data request signal from that peripheral.
@@ -237,7 +219,7 @@ void pwm_pio_dma_config(pwm_pio_t *pwm)
     dma_channel_start(dma_chan);
 }
 
-int main()
+int  __time_critical_func(main)(void)
 {
     // initialize clocks, on-board LED, SMPS mode power supply
     if (!init_system())
@@ -248,17 +230,36 @@ int main()
 
     uint offset = pio_add_program(pio0, &pwm_program);
 
-    pwm_program_init(pwm0.pio, pwm0.sm, offset, pwm0.pin);
-    pwm_program_init(pwm1.pio, pwm1.sm, offset, pwm1.pin);
+    for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
+    {
+        pwms[i].pio = pio0;
+        pwms[i].sm = i;
+        pwms[i].pin = 2 + i;
+        pwms[i].dma_chan = i;
+        pwms[i].duty_phase = 0x7FFFFFFEU;
+        pwms[i].duty = 0xEFFEU;
+        pwms[i].period = 0xFFFEU;
+        pwms[i].phase_change = false;
+        pwms[i].phase_period = 0U;
+    }
 
-    pwm_pio_dma_config(&pwm0);
-    pwm_pio_dma_config(&pwm1);
 
-    pio_sm_set_enabled(pwm0.pio, pwm0.sm, true);
-    pio_sm_set_enabled(pwm1.pio, pwm1.sm, true);
+    for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
+    {
+        pwm_program_init(pwms[i].pio, pwms[i].sm, offset, pwms[i].pin);
+        pwm_pio_dma_config(pwms + i);
+    }
 
-    pwm1.phase_period = 0x7FFFU;
-    pwm1.phase_change = true;
+    pio_enable_sm_mask_in_sync(pio0, 0b1111);
+
+    (pwms + 1)->phase_period = 0x3FFFU;
+    (pwms + 1)->phase_change = true;
+
+    (pwms + 2)->phase_period = 0x7FFFU;
+    (pwms + 2)->phase_change = true;
+
+    (pwms + 3)->phase_period = 0xBFFFU;
+    (pwms + 3)->phase_change = true;
 
     while(true)
     {
