@@ -21,6 +21,7 @@ if (TARGET tinyusb_device)
     add_executable(test)
 
     pico_generate_pio_header(test ${CMAKE_CURRENT_LIST_DIR}/pwm.pio)
+    pico_generate_pio_header(test ${CMAKE_CURRENT_LIST_DIR}/clock.pio)
     target_sources(test PRIVATE test.c)
 
     pico_enable_stdio_usb(test 0)

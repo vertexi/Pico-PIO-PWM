@@ -141,6 +141,12 @@ uint8_t init_system()
 }
 
 #include "pwm.pio.h"
+#include "clock.pio.h"
+
+#define PWM_SYNC_IN_PIN 16
+#define PWM_SYNC_OUT_PIN 17
+#define CLOCK_OUT_PIN 21
+#define CLOCK_OUT_DIV 20
 
 typedef struct pwm_pio {
     volatile PIO pio;
@@ -225,6 +231,17 @@ int  __time_critical_func(main)(void)
     {
         return 0;
     }
+
+    // output pico clock, the freq is 240Mhz/20 = 12Mhz.
+    // this clock will connect to another pico XIN
+    clock_gpio_init(CLOCK_OUT_PIN, CLOCKS_CLK_GPOUT0_CTRL_AUXSRC_VALUE_CLK_SYS, CLOCK_OUT_DIV);
+
+    // init the pwm sync out pin to low, make all PIO state machines stall
+    gpio_init(PWM_SYNC_OUT_PIN);
+    gpio_set_dir(PWM_SYNC_OUT_PIN, true);
+    gpio_put(PWM_SYNC_OUT_PIN, false);
+
+    // welcome message indicates the pico works.
     printf("Hello, PWM!\n");
 
     uint offset = pio_add_program(pio0, &pwm_program);
@@ -244,11 +261,16 @@ int  __time_critical_func(main)(void)
     // config and init state machines and dma
     for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
     {
-        pwm_program_init(pwms[i].pio, pwms[i].sm, offset, pwms[i].pin);
+        pwm_program_init(pwms[i].pio, pwms[i].sm, offset, pwms[i].pin, PWM_SYNC_IN_PIN);
         pwm_pio_dma_config(pwms + i);
     }
     // simultaneously start state machines
     pio_enable_sm_mask_in_sync(pio0, 0b1111);
+
+    // output cpu clock use for debug.
+    offset = pio_add_program(pio1, &clock_program);
+    clock_program_init(pio1, 0, offset, 18);
+    pio_sm_set_enabled(pio1, 0, true);
 
     // phase control test
     (pwms + 1)->phase_period = 0x3FFU;
@@ -259,6 +281,10 @@ int  __time_critical_func(main)(void)
 
     (pwms + 3)->phase_period = 0xBFFU;
     (pwms + 3)->phase_change = true;
+
+    // set pwm sync out pin to high, to activate all state machines
+    sleep_ms(1000);
+    gpio_put(PWM_SYNC_OUT_PIN, true);
 
     while(true)
     {

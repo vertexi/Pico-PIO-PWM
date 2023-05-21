@@ -1,8 +1,8 @@
 .program pwm
 .side_set 1 opt
 
-; autopull enable
-
+; should enable autopull
+    wait 1 pin 0
 .wrap_target
 public begin:
     out y, 16               ; period value
@@ -20,11 +20,21 @@ public low:
 
 % c-sdk {
 #include "hardware/gpio.h"
-static inline void pwm_program_init(PIO pio, uint sm, uint offset, uint pin) {
+static inline void pwm_program_init(PIO pio, uint sm, uint offset, uint pin, uint sync_pin) {
+    // set the side set pin
     pio_gpio_init(pio, pin);
     pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+    // init set the pwm pin low
+    pio_sm_set_pins_with_mask(pio, sm, 0, (1u << pin));
     pio_sm_config c = pwm_program_get_default_config(offset);
     sm_config_set_sideset_pins(&c, pin);
+
+    // set the sync pin
+    pio_gpio_init(pio, sync_pin);
+    gpio_pull_down(sync_pin);
+    // set pwm pin is output, sync_pin is input
+    pio_sm_set_pindirs_with_mask(pio, sm, (1u << pin), (1u << pin) | (1u << sync_pin));
+    sm_config_set_in_pins(&c, sync_pin);
 
     // out shift to right, auto-pull enable, 32 bit threshold for auto-pull
     sm_config_set_out_shift(&c, true, true, 32);
