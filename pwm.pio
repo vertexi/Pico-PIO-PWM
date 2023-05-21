@@ -42,6 +42,9 @@ static inline void pwm_program_init(PIO pio, uint sm, uint offset, uint pin, uin
     float div = 1.0f;
     sm_config_set_clkdiv(&c, div);
 
+    // picos are synchronized, so bypass input synchroniser to reduce input delay.
+    hw_set_bits(&pio->input_sync_bypass, 1u << sync_pin);
+
     pio_sm_init(pio, sm, offset, &c);
 }
 %}
