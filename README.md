@@ -9,10 +9,10 @@ phase control.
 
 The figure below shows that two pico's pwms, synchronize and phase shift.
 
-![pwm_fig](imgs\pwm.jpg)
+![pwm_fig](./imgs/pwm.jpg)
 
 The connection.
 
-![connection_fig](imgs\connection.jpg)
+![connection_fig](./imgs/connection.jpg)
 
 The second pico's crystal oscillator removed, and connect the XIN to another pico PIN21. And the first pico `PWM_SYNC_OUT_PIN(PIN17)` connect to two picos `PWM_SYNC_IN_PIN(PIN16)`, which will sync start two pico pwms.
