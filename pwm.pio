@@ -18,15 +18,48 @@ public low:
     jmp y--, switch side 0  ; set pin low and count down
 .wrap
 
+
+.program pwm_up_down
+.side_set 1 opt
+
+; should enable autopull
+    wait 1 pin 0
+.wrap_target
+public begin0:
+    out y, 16               ; period value
+    out x, 16               ; duty value
+public switch0:
+    jmp x!=y, low0           ; if x == y then set pin high, else set low
+    jmp high0        side 1  ; x == y, so set pin high
+public high0:
+    nop                     ; single dummy cycle to keep the two paths the same length
+    jmp y--, high0   side 1  ; set pin high, until y hits 0
+    jmp begin1
+public low0:
+    jmp y--, switch0 side 0  ; set pin low and count down
+public begin1:
+    out y, 16               ; period value
+    out x, 16               ; duty value
+public switch1:
+    jmp x!=y, low1           ; if x == y then set pin high, else set low
+    jmp high1        side 0  ; x == y, so set pin high
+public high1:
+    nop                     ; single dummy cycle to keep the two paths the same length
+    jmp y--, high1   side 0  ; set pin high, until y hits 0
+    jmp begin0
+public low1:
+    jmp y--, switch1 side 1  ; set pin low and count down
+.wrap
+
 % c-sdk {
 #include "hardware/gpio.h"
-static inline void pwm_program_init(PIO pio, uint sm, uint offset, uint pin, uint sync_pin) {
+static inline void pwm_program_init(PIO pio, uint sm, uint offset, bool up_down, uint pin, uint sync_pin) {
     // set the side set pin
     pio_gpio_init(pio, pin);
     pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
     // init set the pwm pin low
     pio_sm_set_pins_with_mask(pio, sm, 0, (1u << pin));
-    pio_sm_config c = pwm_program_get_default_config(offset);
+    pio_sm_config c = up_down ? pwm_up_down_program_get_default_config(offset) : pwm_program_get_default_config(offset);
     sm_config_set_sideset_pins(&c, pin);
 
     // set the sync pin

@@ -180,6 +180,7 @@ typedef struct pwm_pio {
 
 volatile pwm_pio_t pwms[8];
 #define NUM_OF_PWM_CHANNEL 8
+#define UP_DOWN 0
 
 #define PWM_DMA_HANDLER() \
 do { \
@@ -265,8 +266,19 @@ int  __time_critical_func(main)(void)
     // welcome message indicates the pico works.
     printf("Hello, PWM!\n");
 
-    uint offset = pio_add_program(pio0, &pwm_program);
-    uint offset1 = pio_add_program(pio1, &pwm_program);
+    uint pio0_offset = 0;
+    uint pio1_offset = 0;
+    #if (UP_DOWN == 1)
+        pio0_offset = pio_add_program(pio0, &pwm_up_down_program);
+        if (NUM_OF_PWM_CHANNEL > 4) {
+            pio1_offset = pio_add_program(pio1, &pwm_up_down_program);
+        }
+    #else
+        pio0_offset = pio_add_program(pio0, &pwm_program);
+        if (NUM_OF_PWM_CHANNEL > 4) {
+            pio1_offset = pio_add_program(pio1, &pwm_program);
+        }
+    #endif
     // initialize pwms parameters
     for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
     {
@@ -291,9 +303,9 @@ int  __time_critical_func(main)(void)
     {
         if (i < 4)
         {
-            pwm_program_init(pwms[i].pio, pwms[i].sm, offset, pwms[i].pin, PWM_SYNC_IN_PIN);
+            pwm_program_init(pwms[i].pio, pwms[i].sm, pio0_offset, UP_DOWN, pwms[i].pin, PWM_SYNC_IN_PIN);
         } else {
-            pwm_program_init(pwms[i].pio, pwms[i].sm, offset1, pwms[i].pin, PWM_SYNC_IN_PIN);
+            pwm_program_init(pwms[i].pio, pwms[i].sm, pio1_offset, UP_DOWN, pwms[i].pin, PWM_SYNC_IN_PIN);
         }
         pwm_pio_dma_config(pwms + i);
     }
@@ -310,6 +322,9 @@ int  __time_critical_func(main)(void)
     // pio_sm_set_enabled(pio1, 0, true);
 
     // phase control test
+    (pwms + 0)->phase_period = 0x0;
+    (pwms + 0)->phase_change = true;
+
     (pwms + 1)->phase_period = 0x3FFU;
     (pwms + 1)->phase_change = true;
 
@@ -325,23 +340,23 @@ int  __time_critical_func(main)(void)
 
     sleep_us(100);
     // phase control test
-    (pwms + 1)->phase_period = 0x3FFU;
-    (pwms + 1)->phase_change = true;
+    // (pwms + 1)->phase_period = 0x3FFU;
+    // (pwms + 1)->phase_change = true;
 
-    (pwms + 2)->phase_period = 0x7FFU;
-    (pwms + 2)->phase_change = true;
+    // (pwms + 2)->phase_period = 0x7FFU;
+    // (pwms + 2)->phase_change = true;
 
-    (pwms + 3)->phase_period = 0xBFFU;
-    (pwms + 3)->phase_change = true;
+    // (pwms + 3)->phase_period = 0xBFFU;
+    // (pwms + 3)->phase_change = true;
 
-    (pwms + 5)->phase_period = 0x3FFU;
-    (pwms + 5)->phase_change = true;
+    // (pwms + 5)->phase_period = 0x3FFU;
+    // (pwms + 5)->phase_change = true;
 
-    (pwms + 6)->phase_period = 0x7FFU;
-    (pwms + 6)->phase_change = true;
+    // (pwms + 6)->phase_period = 0x7FFU;
+    // (pwms + 6)->phase_change = true;
 
-    (pwms + 7)->phase_period = 0xBFFU;
-    (pwms + 7)->phase_change = true;
+    // (pwms + 7)->phase_period = 0xBFFU;
+    // (pwms + 7)->phase_change = true;
 
     while(true)
     {
