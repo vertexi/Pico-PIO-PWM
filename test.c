@@ -140,6 +140,24 @@ uint8_t init_system()
     return 1;
 }
 
+#define REP0(X)
+#define REP1(X) X
+#define REP2(X) REP1(X) X
+#define REP3(X) REP2(X) X
+#define REP4(X) REP3(X) X
+#define REP5(X) REP4(X) X
+#define REP6(X) REP5(X) X
+#define REP7(X) REP6(X) X
+#define REP8(X) REP7(X) X
+#define REP9(X) REP8(X) X
+#define REP10(X) REP9(X) X
+
+#define REP(HUNDREDS,TENS,ONES,X) REP_(HUNDREDS,TENS,ONES,X)
+#define REP_(HUNDREDS,TENS,ONES,X) \
+  REP##HUNDREDS(REP10(REP10(X))) \
+  REP##TENS(REP10(X)) \
+  REP##ONES(X)
+
 #include "pwm.pio.h"
 #include "clock.pio.h"
 
@@ -160,8 +178,14 @@ typedef struct pwm_pio {
     volatile uint32_t phase_period;
 } pwm_pio_t;
 
-volatile pwm_pio_t pwms[4];
-#define NUM_OF_PWM_CHANNEL 4
+volatile pwm_pio_t pwms[8];
+#define NUM_OF_PWM_CHANNEL 8
+
+#define PWM_DMA_HANDLER() \
+do { \
+    uint8_t i = 0; \
+    REP(0, 0, NUM_OF_PWM_CHANNEL, pwm_pio_dma_handler(pwms + (i++));)\
+} while (0)
 
 static inline void __time_critical_func(pwm_pio_dma_handler)(volatile pwm_pio_t *pwm)
 {
@@ -186,10 +210,7 @@ static inline void __time_critical_func(pwm_pio_dma_handler)(volatile pwm_pio_t 
 
 void __time_critical_func(dma_handler)(void)
 {
-    pwm_pio_dma_handler(pwms + 0);
-    pwm_pio_dma_handler(pwms + 1);
-    pwm_pio_dma_handler(pwms + 2);
-    pwm_pio_dma_handler(pwms + 3);
+    PWM_DMA_HANDLER();
 }
 
 void pwm_pio_dma_config(volatile pwm_pio_t *pwm)
@@ -245,11 +266,18 @@ int  __time_critical_func(main)(void)
     printf("Hello, PWM!\n");
 
     uint offset = pio_add_program(pio0, &pwm_program);
+    uint offset1 = pio_add_program(pio1, &pwm_program);
     // initialize pwms parameters
     for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
     {
-        pwms[i].pio = pio0;
-        pwms[i].sm = i;
+        if (i < 4)
+        {
+            pwms[i].pio = pio0;
+            pwms[i].sm = i;
+        } else{
+            pwms[i].pio = pio1;
+            pwms[i].sm = i - 4;
+        }
         pwms[i].pin = 2 + i;
         pwms[i].dma_chan = i;
         pwms[i].duty_phase = 0x00001000U;
@@ -261,16 +289,25 @@ int  __time_critical_func(main)(void)
     // config and init state machines and dma
     for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
     {
-        pwm_program_init(pwms[i].pio, pwms[i].sm, offset, pwms[i].pin, PWM_SYNC_IN_PIN);
+        if (i < 4)
+        {
+            pwm_program_init(pwms[i].pio, pwms[i].sm, offset, pwms[i].pin, PWM_SYNC_IN_PIN);
+        } else {
+            pwm_program_init(pwms[i].pio, pwms[i].sm, offset1, pwms[i].pin, PWM_SYNC_IN_PIN);
+        }
         pwm_pio_dma_config(pwms + i);
     }
     // simultaneously start state machines
     pio_enable_sm_mask_in_sync(pio0, 0b1111);
+    if (NUM_OF_PWM_CHANNEL > 4)
+    {
+        pio_enable_sm_mask_in_sync(pio1, 0b1111);
+    }
 
-    // output cpu clock use for debug.
-    offset = pio_add_program(pio1, &clock_program);
-    clock_program_init(pio1, 0, offset, 18);
-    pio_sm_set_enabled(pio1, 0, true);
+    // // output cpu clock use for debug.
+    // offset = pio_add_program(pio1, &clock_program);
+    // clock_program_init(pio1, 0, offset, 18);
+    // pio_sm_set_enabled(pio1, 0, true);
 
     // phase control test
     (pwms + 1)->phase_period = 0x3FFU;
@@ -285,6 +322,26 @@ int  __time_critical_func(main)(void)
     // set pwm sync out pin to high, to activate all state machines
     sleep_ms(1000);
     gpio_put(PWM_SYNC_OUT_PIN, true);
+
+    sleep_us(100);
+    // phase control test
+    (pwms + 1)->phase_period = 0x3FFU;
+    (pwms + 1)->phase_change = true;
+
+    (pwms + 2)->phase_period = 0x7FFU;
+    (pwms + 2)->phase_change = true;
+
+    (pwms + 3)->phase_period = 0xBFFU;
+    (pwms + 3)->phase_change = true;
+
+    (pwms + 5)->phase_period = 0x3FFU;
+    (pwms + 5)->phase_change = true;
+
+    (pwms + 6)->phase_period = 0x7FFU;
+    (pwms + 6)->phase_change = true;
+
+    (pwms + 7)->phase_period = 0xBFFU;
+    (pwms + 7)->phase_change = true;
 
     while(true)
     {
