@@ -170,9 +170,11 @@ typedef struct pwm_pio {
     volatile PIO pio;
     volatile uint sm;
     volatile uint pin;
+    volatile bool polarity;
     volatile uint dma_chan;
     volatile uint32_t duty_phase;
     volatile uint32_t duty;
+    volatile bool duty_flip;
     volatile uint32_t period;
     volatile bool phase_change;
     volatile uint32_t phase_period;
@@ -180,7 +182,15 @@ typedef struct pwm_pio {
 
 volatile pwm_pio_t pwms[8];
 #define NUM_OF_PWM_CHANNEL 8
-#define UP_DOWN 0
+#define UP_DOWN 1
+#define COMPLEMENTARY 1
+#define PWM_PERIOD 0x1000U
+
+#define DUTY_COMPLEMENT(DUTY) \
+    ((DUTY < PWM_PERIOD) ? ((PWM_PERIOD - 1) - DUTY) : ((PWM_PERIOD * 2 + 1) - DUTY))
+
+#define DUTY_GET(DUTY, FLIP_FLAG) \
+    (FLIP_FLAG ? DUTY_COMPLEMENT(DUTY) : DUTY)
 
 #define PWM_DMA_HANDLER() \
 do { \
@@ -195,12 +205,22 @@ static inline void __time_critical_func(pwm_pio_dma_handler)(volatile pwm_pio_t 
         if (pwm->phase_change)
         {
             // update new duty_phase
-            pwm->duty_phase = (pwm->duty << 16) + pwm->phase_period;
+            #if (UP_DOWN == 1)
+                pwm->duty_phase = (DUTY_GET(pwm->duty, pwm->duty_flip) << 16) + pwm->phase_period;
+                pwm->duty_flip = !pwm->duty_flip;
+            #else
+                pwm->duty_phase = (pwm->duty << 16) + pwm->phase_period;
+            #endif
             pwm->phase_change = false;
         } else
         {
             // update new duty_phase
-            pwm->duty_phase = (pwm->duty << 16) + pwm->period;
+            #if (UP_DOWN == 1)
+                pwm->duty_phase = (DUTY_GET(pwm->duty, pwm->duty_flip) << 16) + pwm->period;
+                pwm->duty_flip = !pwm->duty_flip;
+            #else
+                pwm->duty_phase = (pwm->duty << 16) + pwm->period;
+            #endif
         }
         // Clear the interrupt request.
         dma_hw->ints0 = 1u << pwm->dma_chan;
@@ -291,10 +311,16 @@ int  __time_critical_func(main)(void)
             pwms[i].sm = i - 4;
         }
         pwms[i].pin = 2 + i;
+        #if (COMPLEMENTARY == 0)
+            pwms[i].polarity = true;
+        #else
+            pwms[i].polarity = !(i % 2);
+        #endif
         pwms[i].dma_chan = i;
-        pwms[i].duty_phase = 0x00001000U;
-        pwms[i].duty = 0xEFFU;
-        pwms[i].period = 0x1000U;
+        pwms[i].duty_phase = PWM_PERIOD;
+        pwms[i].duty = 0x0U;
+        pwms[i].duty_flip = false;
+        pwms[i].period = PWM_PERIOD;
         pwms[i].phase_change = false;
         pwms[i].phase_period = 0U;
     }
@@ -303,9 +329,9 @@ int  __time_critical_func(main)(void)
     {
         if (i < 4)
         {
-            pwm_program_init(pwms[i].pio, pwms[i].sm, pio0_offset, UP_DOWN, pwms[i].pin, PWM_SYNC_IN_PIN);
+            pwm_program_init(pwms[i].pio, pwms[i].sm, pio0_offset, UP_DOWN, pwms[i].pin, pwms[i].polarity, PWM_SYNC_IN_PIN);
         } else {
-            pwm_program_init(pwms[i].pio, pwms[i].sm, pio1_offset, UP_DOWN, pwms[i].pin, PWM_SYNC_IN_PIN);
+            pwm_program_init(pwms[i].pio, pwms[i].sm, pio1_offset, UP_DOWN, pwms[i].pin, pwms[i].polarity, PWM_SYNC_IN_PIN);
         }
         pwm_pio_dma_config(pwms + i);
     }
@@ -321,18 +347,44 @@ int  __time_critical_func(main)(void)
     // clock_program_init(pio1, 0, offset, 18);
     // pio_sm_set_enabled(pio1, 0, true);
 
-    // phase control test
-    (pwms + 0)->phase_period = 0x0;
-    (pwms + 0)->phase_change = true;
+    // phase control and dead band test
+    // // UP_DOWN == 0
+    // uint32_t dead_band = 0x100U;
+    // (pwms + 0)->phase_period = 0x0U;
+    // (pwms + 0)->duty = 0x6FFU;
 
-    (pwms + 1)->phase_period = 0x3FFU;
-    (pwms + 1)->phase_change = true;
+    // (pwms + 1)->phase_period = 0x0U + (dead_band >> 1);
+    // (pwms + 1)->duty = 0x6FFU + dead_band;
 
-    (pwms + 2)->phase_period = 0x7FFU;
-    (pwms + 2)->phase_change = true;
+    // (pwms + 2)->phase_period = 0x3FFU;
+    // (pwms + 2)->duty = 0x6FFU;
 
-    (pwms + 3)->phase_period = 0xBFFU;
-    (pwms + 3)->phase_change = true;
+    // (pwms + 3)->phase_period = 0x3FFU + (dead_band >> 1);
+    // (pwms + 3)->duty = 0x6FFU + dead_band;
+
+    // (pwms + 0)->phase_change = true;
+    // (pwms + 1)->phase_change = true;
+    // (pwms + 2)->phase_change = true;
+    // (pwms + 3)->phase_change = true;
+
+    // UP_DOWN == 1
+    uint32_t dead_band = 0x100U;
+    (pwms + 0)->phase_period = 0x0U;
+    (pwms + 0)->duty = 0x3FFU;
+
+    (pwms + 1)->phase_period = 0x0U;
+    (pwms + 1)->duty = 0x3FFU + dead_band;
+
+    (pwms + 2)->phase_period = 0x3FFU;
+    (pwms + 2)->duty = 0x7FFU;
+
+    (pwms + 3)->phase_period = 0x3FFU;
+    (pwms + 3)->duty = 0x7FFU + dead_band;
+
+    // (pwms + 0)->phase_change = true;
+    // (pwms + 1)->phase_change = true;
+    // (pwms + 2)->phase_change = true;
+    // (pwms + 3)->phase_change = true;
 
     // set pwm sync out pin to high, to activate all state machines
     sleep_ms(1000);
