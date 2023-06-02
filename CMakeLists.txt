@@ -40,6 +40,20 @@ if (TARGET tinyusb_device)
         pico_sync
     )
     pico_add_extra_outputs(test)
+
+    add_executable(controller)
+    target_sources(controller PRIVATE controller.c)
+
+    pico_enable_stdio_usb(controller 0)
+    pico_enable_stdio_uart(controller 1)
+
+    target_link_libraries(controller
+        pico_stdlib
+        hardware_spi
+		hardware_dma
+		pico_multicore
+    )
+    pico_add_extra_outputs(controller)
 elseif(PICO_ON_DEVICE)
     message(WARNING "not building hello_usb because TinyUSB submodule is not initialized in the SDK")
 endif()

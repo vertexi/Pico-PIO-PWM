@@ -1,6 +1,3 @@
-// sin_fix_interp 10 times precise than sin_fix
-// sin_fix_interp 22.13 times fast than gcc sin
-
 #include <stdio.h>
 #include <math.h>
 #include "pico/stdlib.h"
@@ -125,7 +122,6 @@ uint8_t init_system()
     {
         return 0;
     }
-    measure_freqs();
 
     // set up led indicator
     gpio_init(LED_PIN);
@@ -161,10 +157,20 @@ uint8_t init_system()
 #include "pwm.pio.h"
 #include "clock.pio.h"
 
-#define PWM_SYNC_IN_PIN 16
-#define PWM_SYNC_OUT_PIN 17
+#define PWM_SYNC_IN_PIN 22
 #define CLOCK_OUT_PIN 21
 #define CLOCK_OUT_DIV 20
+#define ADDR_0 26
+#define ADDR_1 27
+#define ADDR_2 28
+#define SPI_FREQ 20000000
+
+#define NUM_OF_PWM_CHANNEL 8
+#define UP_DOWN 1
+#define COMPLEMENTARY 0
+#define PWM_PERIOD 0x1000U
+
+uint8_t PWM_ADDR = 0U;
 
 typedef struct pwm_pio {
     volatile PIO pio;
@@ -177,14 +183,13 @@ typedef struct pwm_pio {
     volatile bool duty_flip;
     volatile uint32_t period;
     volatile bool phase_change;
+    #if (UP_DOWN == 1)
+        volatile uint8_t phase_change_count;
+    #endif
     volatile uint32_t phase_period;
 } pwm_pio_t;
 
 volatile pwm_pio_t pwms[8];
-#define NUM_OF_PWM_CHANNEL 8
-#define UP_DOWN 1
-#define COMPLEMENTARY 1
-#define PWM_PERIOD 0x1000U
 
 #define DUTY_COMPLEMENT(DUTY) \
     ((DUTY < PWM_PERIOD) ? ((PWM_PERIOD - 1) - DUTY) : ((PWM_PERIOD * 2 + 1) - DUTY))
@@ -208,10 +213,15 @@ static inline void __time_critical_func(pwm_pio_dma_handler)(volatile pwm_pio_t 
             #if (UP_DOWN == 1)
                 pwm->duty_phase = (DUTY_GET(pwm->duty, pwm->duty_flip) << 16) + pwm->phase_period;
                 pwm->duty_flip = !pwm->duty_flip;
+                pwm->phase_change_count++;
+                if (pwm->phase_change_count == 2) {
+                    pwm->phase_change_count = 0;
+                    pwm->phase_change = false;
+                }
             #else
                 pwm->duty_phase = (pwm->duty << 16) + pwm->phase_period;
+                pwm->phase_change = false;
             #endif
-            pwm->phase_change = false;
         } else
         {
             // update new duty_phase
@@ -266,6 +276,25 @@ void pwm_pio_dma_config(volatile pwm_pio_t *pwm)
     dma_channel_start(dma_chan);
 }
 
+void __time_critical_func(core1_main)(void)
+{
+    volatile uint8_t spi_rxf[5];
+    while(1)
+    {
+        for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
+        {
+            spi_read_blocking(spi_default, 0, spi_rxf, 5);
+            (pwms + i)->phase_period = spi_rxf[1] + spi_rxf[2] << 8;
+            (pwms + i)->duty = spi_rxf[3] + spi_rxf[4] << 8;
+
+            if ((pwms + i)->phase_period != 0)
+            {
+                (pwms + i)->phase_change = true;
+            }
+        }
+    }
+}
+
 int  __time_critical_func(main)(void)
 {
     // initialize clocks, on-board LED, SMPS mode power supply
@@ -278,13 +307,30 @@ int  __time_critical_func(main)(void)
     // this clock will connect to another pico XIN
     clock_gpio_init(CLOCK_OUT_PIN, CLOCKS_CLK_GPOUT0_CTRL_AUXSRC_VALUE_CLK_SYS, CLOCK_OUT_DIV);
 
-    // init the pwm sync out pin to low, make all PIO state machines stall
-    gpio_init(PWM_SYNC_OUT_PIN);
-    gpio_set_dir(PWM_SYNC_OUT_PIN, true);
-    gpio_put(PWM_SYNC_OUT_PIN, false);
+    // use SPI0 around at 12MHz. due to overclock clkperi stuck at 48Mhz
+    spi_init(spi_default, SPI_FREQ);
+    spi_set_slave(spi_default, true);
+    spi_set_format(spi_default,
+                   8,          // number of bits per transfer
+                   SPI_CPOL_1, // polarity CPOL
+                   SPI_CPHA_0, // phase CPHA
+                   SPI_MSB_FIRST);
+    gpio_set_function(PICO_DEFAULT_SPI_RX_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(PICO_DEFAULT_SPI_SCK_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(PICO_DEFAULT_SPI_TX_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(PICO_DEFAULT_SPI_CSN_PIN, GPIO_FUNC_SPI);
 
-    // welcome message indicates the pico works.
-    printf("Hello, PWM!\n");
+    gpio_init(ADDR_0);
+    gpio_set_dir(ADDR_0, GPIO_IN);
+    gpio_pull_down(ADDR_0);
+    gpio_init(ADDR_1);
+    gpio_set_dir(ADDR_1, GPIO_IN);
+    gpio_pull_down(ADDR_1);
+    gpio_init(ADDR_2);
+    gpio_set_dir(ADDR_2, GPIO_IN);
+    gpio_pull_down(ADDR_2);
+
+    PWM_ADDR = gpio_get(ADDR_0) + gpio_get(ADDR_1) << 1 + gpio_get(ADDR_2) << 2;
 
     uint pio0_offset = 0;
     uint pio1_offset = 0;
@@ -318,11 +364,14 @@ int  __time_critical_func(main)(void)
         #endif
         pwms[i].dma_chan = i;
         pwms[i].duty_phase = PWM_PERIOD;
-        pwms[i].duty = 0x0U;
-        pwms[i].duty_flip = false;
+        pwms[i].duty = 0x100U;
+        pwms[i].duty_flip = true;
         pwms[i].period = PWM_PERIOD;
         pwms[i].phase_change = false;
         pwms[i].phase_period = 0U;
+        #if (UP_DOWN == 1)
+            pwms[i].phase_change_count = 0U;
+        #endif
     }
     // config and init state machines and dma
     for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
@@ -342,73 +391,21 @@ int  __time_critical_func(main)(void)
         pio_enable_sm_mask_in_sync(pio1, 0b1111);
     }
 
-    // // output cpu clock use for debug.
-    // offset = pio_add_program(pio1, &clock_program);
-    // clock_program_init(pio1, 0, offset, 18);
-    // pio_sm_set_enabled(pio1, 0, true);
+    for (uint32_t i = 0; i < 10000000; i++)
+    {
+        pwms[1].phase_period = 0x800;
+        pwms[1].phase_change = true;
 
-    // phase control and dead band test
-    // // UP_DOWN == 0
-    // uint32_t dead_band = 0x100U;
-    // (pwms + 0)->phase_period = 0x0U;
-    // (pwms + 0)->duty = 0x6FFU;
+        sleep_us(100);
 
-    // (pwms + 1)->phase_period = 0x0U + (dead_band >> 1);
-    // (pwms + 1)->duty = 0x6FFU + dead_band;
+        pwms[1].phase_period = PWM_PERIOD - 3 - 0x800;
+        pwms[1].phase_change = true;
 
-    // (pwms + 2)->phase_period = 0x3FFU;
-    // (pwms + 2)->duty = 0x6FFU;
+        sleep_us(100);
+    }
 
-    // (pwms + 3)->phase_period = 0x3FFU + (dead_band >> 1);
-    // (pwms + 3)->duty = 0x6FFU + dead_band;
-
-    // (pwms + 0)->phase_change = true;
-    // (pwms + 1)->phase_change = true;
-    // (pwms + 2)->phase_change = true;
-    // (pwms + 3)->phase_change = true;
-
-    // UP_DOWN == 1
-    uint32_t dead_band = 0x100U;
-    (pwms + 0)->phase_period = 0x0U;
-    (pwms + 0)->duty = 0x3FFU;
-
-    (pwms + 1)->phase_period = 0x0U;
-    (pwms + 1)->duty = 0x3FFU + dead_band;
-
-    (pwms + 2)->phase_period = 0x3FFU;
-    (pwms + 2)->duty = 0x7FFU;
-
-    (pwms + 3)->phase_period = 0x3FFU;
-    (pwms + 3)->duty = 0x7FFU + dead_band;
-
-    // (pwms + 0)->phase_change = true;
-    // (pwms + 1)->phase_change = true;
-    // (pwms + 2)->phase_change = true;
-    // (pwms + 3)->phase_change = true;
-
-    // set pwm sync out pin to high, to activate all state machines
-    sleep_ms(1000);
-    gpio_put(PWM_SYNC_OUT_PIN, true);
-
-    sleep_us(100);
-    // phase control test
-    // (pwms + 1)->phase_period = 0x3FFU;
-    // (pwms + 1)->phase_change = true;
-
-    // (pwms + 2)->phase_period = 0x7FFU;
-    // (pwms + 2)->phase_change = true;
-
-    // (pwms + 3)->phase_period = 0xBFFU;
-    // (pwms + 3)->phase_change = true;
-
-    // (pwms + 5)->phase_period = 0x3FFU;
-    // (pwms + 5)->phase_change = true;
-
-    // (pwms + 6)->phase_period = 0x7FFU;
-    // (pwms + 6)->phase_change = true;
-
-    // (pwms + 7)->phase_period = 0xBFFU;
-    // (pwms + 7)->phase_change = true;
+    multicore_reset_core1();
+    multicore_launch_core1(core1_main);
 
     while(true)
     {

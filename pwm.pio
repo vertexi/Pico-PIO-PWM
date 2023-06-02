@@ -5,17 +5,18 @@
     wait 1 pin 0
 .wrap_target
 public begin:
-    out y, 16               ; period value
-    out x, 16               ; duty value
+    out y, 16                   ; period value
+    out x, 16                   ; duty value
 public switch:
-    jmp x!=y, low           ; if x == y then set pin high, else set low
-    jmp high        side 1  ; x == y, so set pin high
+    jmp x!=y, low               ; if x == y then set pin high, else set low
+    jmp y--, high       side 1  ; x == y, so set pin high
+    jmp begin           [1]
 public high:
-    nop                     ; single dummy cycle to keep the two paths the same length
-    jmp y--, high   side 1  ; set pin high, until y hits 0
-    jmp begin
+    jmp y--, high       side 1 [1] ; set pin high, until y hits 0
+    jmp begin           [1]
 public low:
-    jmp y--, switch side 0  ; set pin low and count down
+    jmp y--, switch     side 0  ; set pin low and count down
+    jmp begin           [1]
 .wrap
 
 
@@ -25,30 +26,32 @@ public low:
 ; should enable autopull
     wait 1 pin 0
 .wrap_target
-public begin0:
-    out y, 16               ; period value
-    out x, 16               ; duty value
-public switch0:
-    jmp x!=y, low0           ; if x == y then set pin high, else set low
-    jmp high0        side 1  ; x == y, so set pin high
-public high0:
-    nop                     ; single dummy cycle to keep the two paths the same length
-    jmp y--, high0   side 1  ; set pin high, until y hits 0
-    jmp begin1
-public low0:
-    jmp y--, switch0 side 0  ; set pin low and count down
+public begin:
+    out y, 16                   ; period value
+    out x, 16                   ; duty value
+public switch:
+    jmp x!=y, low               ; if x == y then set pin high, else set low
+    jmp y--, high       side 1  ; x == y, so set pin high
+    jmp begin1           [1]
+public high:
+    jmp y--, high       side 1 [1] ; set pin high, until y hits 0
+    jmp begin1           [1]
+public low:
+    jmp y--, switch     side 0  ; set pin low and count down
+    jmp begin1           [1]
 public begin1:
-    out y, 16               ; period value
-    out x, 16               ; duty value
+    out y, 16                   ; period value
+    out x, 16                   ; duty value
 public switch1:
-    jmp x!=y, low1           ; if x == y then set pin high, else set low
-    jmp high1        side 0  ; x == y, so set pin high
+    jmp x!=y, low1               ; if x == y then set pin high, else set low
+    jmp y--, high1       side 0  ; x == y, so set pin high
+    jmp begin           [1]
 public high1:
-    nop                     ; single dummy cycle to keep the two paths the same length
-    jmp y--, high1   side 0  ; set pin high, until y hits 0
-    jmp begin0
+    jmp y--, high1       side 0 [1] ; set pin high, until y hits 0
+    jmp begin           [1]
 public low1:
-    jmp y--, switch1 side 1  ; set pin low and count down
+    jmp y--, switch1     side 1  ; set pin low and count down
+    jmp begin           [1]
 .wrap
 
 % c-sdk {
