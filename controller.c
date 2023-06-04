@@ -132,11 +132,27 @@ uint8_t init_system()
 #define PWM_DATA_SYNC 15
 #define PWM_PERIOD 0x1000U
 
-void duty_change(uint8_t *pwm_buf, uint8_t channel, float duty)
+// duty 0 ~ 1.0
+void __time_critical_func(duty_change)(uint8_t *pwm_buf, uint8_t channel, float duty)
 {
     uint16_t duty_num =  (uint16_t)(duty * PWM_PERIOD);
+    if (duty == 0.0f)
+    {
+        duty_num = PWM_PERIOD + 1;
+    }
     pwm_buf[(channel * 5) + 1] = duty_num >> 8;
     pwm_buf[(channel * 5) + 2] = duty_num & 0x00FFU;
+}
+
+// phase 0~1.0
+void __time_critical_func(phase_change)(uint8_t *pwm_buf, uint8_t channel, float phase)
+{
+    if (phase == 0.0f) {
+        phase = 1.0f;
+    }
+    uint16_t phase_num =  (uint16_t)(phase * PWM_PERIOD);
+    pwm_buf[(channel * 5) + 3] = phase_num >> 8;
+    pwm_buf[(channel * 5) + 4] = phase_num & 0x00FFU;
 }
 
 int  __time_critical_func(main)(void)
@@ -190,19 +206,21 @@ int  __time_critical_func(main)(void)
     for (int i = 0; i < 8; i++)
     {
         duty_change(spi_txf, i, 0.1f);
+        phase_change(spi_txf, i, 1.0f);
     }
-
-    spi_txf[1*5 + 1] = 0x2U;
+    phase_change(spi_txf, 2, 0.5f);
+    duty_change(spi_txf, 3, 0.0f);
 
     uint32_t count = 0;
     sleep_ms(200);
     float pwm1_duty = 0.1f;
+    bool pwm3_duty = false;
     while (1)
     {
-        // if (count == 32)
-        // {
-        //     break;
-        // }
+        if (count % 1000 == 0) {
+            duty_change(spi_txf, 3, pwm3_duty);
+            pwm3_duty = !pwm3_duty;
+        }
         duty_change(spi_txf, 1, pwm1_duty);
         pwm1_duty += 0.1f;
         if (pwm1_duty > 1.0f)

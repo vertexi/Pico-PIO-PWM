@@ -188,6 +188,7 @@ typedef struct pwm_pio {
         volatile uint8_t phase_change_count;
     #endif
     volatile uint32_t phase_period;
+    volatile uint32_t phase;
 } pwm_pio_t;
 
 volatile pwm_pio_t pwms[8];
@@ -277,27 +278,18 @@ void pwm_pio_dma_config(volatile pwm_pio_t *pwm)
     dma_channel_start(dma_chan);
 }
 
-int __not_in_flash_func(spi_flush)(spi_inst_t *spi, uint8_t repeated_tx_data, uint8_t *dst, size_t len) {
-    invalid_params_if(SPI, 0 > (int)len);
-    const size_t fifo_depth = 8;
-    size_t rx_remaining = len, tx_remaining = len;
-    uint8_t try = 0;
-
-    while (true) {
-        if (spi_is_writable(spi)) {
-            spi_get_hw(spi)->dr = (uint32_t) repeated_tx_data;
-        }
-        if (spi_is_readable(spi)) {
-            *dst++ = (uint8_t) spi_get_hw(spi)->dr;
-        } else {
-            try++;
-            if (try > 8) {
-                return 0;
-            }
-        }
+void __time_critical_func(phase_change)(volatile pwm_pio_t *pwm, uint16_t phase)
+{
+    uint16_t new_phase;
+    phase += 3;
+    new_phase = phase;
+    if (phase < (pwm->phase + 3))
+    {
+        phase += (3 + PWM_PERIOD);
     }
-
-    return (int)len;
+    pwm->phase_period = phase - (pwm->phase + 3);
+    pwm->phase = new_phase;
+    pwm->phase_change = true;
 }
 
 volatile uint8_t pwm_rxf[5*NUM_OF_PWM_CHANNEL];
@@ -332,6 +324,7 @@ void __time_critical_func(core1_main)(void)
         for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
         {
             pwms[i].duty = (pwm_rxf[5*i + 1] << 8) + pwm_rxf[5*i + 2];
+            phase_change(pwms + i, (pwm_rxf[5*i + 3] << 8) + pwm_rxf[5*i + 4]);
         }
     }
 
@@ -415,6 +408,7 @@ int  __time_critical_func(main)(void)
         pwms[i].period = PWM_PERIOD;
         pwms[i].phase_change = false;
         pwms[i].phase_period = 0U;
+        pwms[i].phase = 0U;
         #if (UP_DOWN == 1)
             pwms[i].phase_change_count = 0U;
         #endif
@@ -439,23 +433,21 @@ int  __time_critical_func(main)(void)
 
     // for (uint32_t i = 0; i < 100000; i++)
     // {
-    //     pwms[1].phase_period = 0x800;
+    //     phase_change(pwms+1, 0x800);
     //     pwms[1].duty += 0x100U;
     //     if (pwms[1].duty > PWM_PERIOD)
     //     {
     //         pwms[1].duty = 0x0U;
     //     }
-    //     pwms[1].phase_change = true;
 
     //     sleep_us(100);
 
-    //     pwms[1].phase_period = PWM_PERIOD - 3 - 0x800;
+    //     phase_change(pwms+1, PWM_PERIOD);
     //     pwms[1].duty += 0x100U;
     //     if (pwms[1].duty > PWM_PERIOD)
     //     {
     //         pwms[1].duty = 0x0U;
     //     }
-    //     pwms[1].phase_change = true;
 
     //     sleep_us(100);
     // }
