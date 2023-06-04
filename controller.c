@@ -155,6 +155,11 @@ void __time_critical_func(phase_change)(uint8_t *pwm_buf, uint8_t channel, float
     pwm_buf[(channel * 5) + 4] = phase_num & 0x00FFU;
 }
 
+void __time_critical_func(pwm_dev_addr)(uint8_t *pwm_buf, uint8_t channel, uint8_t addr)
+{
+    pwm_buf[(channel * 5) + 0] = addr;
+}
+
 int  __time_critical_func(main)(void)
 {
     if (!init_system())
@@ -205,6 +210,7 @@ int  __time_critical_func(main)(void)
     }
     for (int i = 0; i < 8; i++)
     {
+        pwm_dev_addr(spi_txf, i, 0);
         duty_change(spi_txf, i, 0.1f);
         phase_change(spi_txf, i, 1.0f);
     }

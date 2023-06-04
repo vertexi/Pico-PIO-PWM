@@ -323,8 +323,11 @@ void __time_critical_func(core1_main)(void)
         // }
         for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
         {
-            pwms[i].duty = (pwm_rxf[5*i + 1] << 8) + pwm_rxf[5*i + 2];
-            phase_change(pwms + i, (pwm_rxf[5*i + 3] << 8) + pwm_rxf[5*i + 4]);
+            if (pwm_rxf[5*i + 0] == PWM_ADDR)
+            {
+                pwms[i].duty = (pwm_rxf[5*i + 1] << 8) + pwm_rxf[5*i + 2];
+                phase_change(pwms + i, (pwm_rxf[5*i + 3] << 8) + pwm_rxf[5*i + 4]);
+            }
         }
     }
 
@@ -369,7 +372,7 @@ int  __time_critical_func(main)(void)
     gpio_set_dir(ADDR_2, GPIO_IN);
     gpio_pull_down(ADDR_2);
 
-    PWM_ADDR = gpio_get(ADDR_0) + gpio_get(ADDR_1) << 1 + gpio_get(ADDR_2) << 2;
+    PWM_ADDR = gpio_get(ADDR_0) + (gpio_get(ADDR_1) << 1) + (gpio_get(ADDR_2) << 2);
 
     uint pio0_offset = 0;
     uint pio1_offset = 0;
