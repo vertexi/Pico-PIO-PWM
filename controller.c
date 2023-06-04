@@ -131,6 +131,7 @@ uint8_t init_system()
 #define PWM_RESET 21
 #define PWM_DATA_SYNC 15
 #define PWM_PERIOD 0x1000U
+#define NUM_OF_PWM_CHANNEL 16
 
 // duty 0 ~ 1.0
 void __time_critical_func(duty_change)(uint8_t *pwm_buf, uint8_t channel, float duty)
@@ -193,32 +194,42 @@ int  __time_critical_func(main)(void)
     gpio_set_dir(PWM_DATA_SYNC, GPIO_OUT);
     gpio_put(PWM_DATA_SYNC, 1);
 
+    gpio_init(PWM_SYNC);
+    gpio_set_dir(PWM_SYNC, GPIO_OUT);
+    gpio_set_drive_strength(PWM_SYNC, GPIO_DRIVE_STRENGTH_12MA);
+    gpio_set_slew_rate(PWM_SYNC, GPIO_SLEW_RATE_FAST);
+    gpio_put(PWM_SYNC, 0);
+
     gpio_init(PWM_RESET);
     gpio_set_dir(PWM_RESET, GPIO_OUT);
     gpio_put(PWM_RESET, 0);
-    sleep_ms(2);
+    sleep_ms(10);
     gpio_put(PWM_RESET, 1);
 
-    gpio_init(PWM_SYNC);
-    gpio_set_dir(PWM_SYNC, GPIO_OUT);
+    sleep_ms(40);
     gpio_put(PWM_SYNC, 1);
 
-    uint8_t spi_txf[40] = {0, 0, 0, 0, 0x0U};
-    for (int i = 0; i < 40; i++)
+    uint8_t spi_txf[5*NUM_OF_PWM_CHANNEL] = {0, 0, 0, 0, 0x0U};
+    for (int i = 0; i < 5*NUM_OF_PWM_CHANNEL; i++)
     {
         spi_txf[i] = 0;
     }
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
     {
         pwm_dev_addr(spi_txf, i, 0);
         duty_change(spi_txf, i, 0.1f);
         phase_change(spi_txf, i, 1.0f);
     }
+    for (int i = 8; i < NUM_OF_PWM_CHANNEL; i++)
+    {
+        pwm_dev_addr(spi_txf, i, 1);
+    }
     phase_change(spi_txf, 2, 0.5f);
     duty_change(spi_txf, 3, 0.0f);
 
+    phase_change(spi_txf, 2+8, 0.5f);
+
     uint32_t count = 0;
-    sleep_ms(200);
     float pwm1_duty = 0.1f;
     bool pwm3_duty = false;
     while (1)
@@ -234,7 +245,7 @@ int  __time_critical_func(main)(void)
             pwm1_duty = 0.0f;
         }
         gpio_put(PWM_DATA_SYNC, 0);
-        spi_write_blocking(spi_default, spi_txf, 40);
+        spi_write_blocking(spi_default, spi_txf, 5*NUM_OF_PWM_CHANNEL);
         gpio_put(PWM_DATA_SYNC, 1);
         count++;
         sleep_us(50);
