@@ -128,6 +128,16 @@ uint8_t init_system()
 
 #define SPI_FREQ 20000000
 #define PWM_SYNC 20
+#define PWM_RESET 21
+#define PWM_DATA_SYNC 15
+#define PWM_PERIOD 0x1000U
+
+void duty_change(uint8_t *pwm_buf, uint8_t channel, float duty)
+{
+    uint16_t duty_num =  (uint16_t)(duty * PWM_PERIOD);
+    pwm_buf[(channel * 5) + 1] = duty_num >> 8;
+    pwm_buf[(channel * 5) + 2] = duty_num & 0x00FFU;
+}
 
 int  __time_critical_func(main)(void)
 {
@@ -139,7 +149,7 @@ int  __time_critical_func(main)(void)
     // use SPI0 around at 12MHz. due to overclock clkperi stuck at 48Mhz
     spi_init(spi_default, SPI_FREQ);
     spi_set_format(spi_default,
-                   16,          // number of bits per transfer
+                   8,          // number of bits per transfer
                    SPI_CPOL_1, // polarity CPOL
                    SPI_CPHA_0, // phase CPHA
                    SPI_MSB_FIRST);
@@ -149,19 +159,60 @@ int  __time_critical_func(main)(void)
     gpio_set_function(PICO_DEFAULT_SPI_TX_PIN, GPIO_FUNC_SPI);
     gpio_set_function(PICO_DEFAULT_SPI_CSN_PIN, GPIO_FUNC_SPI);
 
+    gpio_set_drive_strength(PICO_DEFAULT_SPI_RX_PIN, GPIO_DRIVE_STRENGTH_12MA);
+    gpio_set_drive_strength(PICO_DEFAULT_SPI_SCK_PIN, GPIO_DRIVE_STRENGTH_12MA);
+    gpio_set_drive_strength(PICO_DEFAULT_SPI_TX_PIN, GPIO_DRIVE_STRENGTH_12MA);
+    gpio_set_drive_strength(PICO_DEFAULT_SPI_CSN_PIN, GPIO_DRIVE_STRENGTH_12MA);
+    gpio_set_slew_rate(PICO_DEFAULT_SPI_RX_PIN, GPIO_SLEW_RATE_FAST);
+    gpio_set_slew_rate(PICO_DEFAULT_SPI_SCK_PIN, GPIO_SLEW_RATE_FAST);
+    gpio_set_slew_rate(PICO_DEFAULT_SPI_TX_PIN, GPIO_SLEW_RATE_FAST);
+    gpio_set_slew_rate(PICO_DEFAULT_SPI_CSN_PIN, GPIO_SLEW_RATE_FAST);
+
+    gpio_init(PWM_DATA_SYNC);
+    gpio_set_dir(PWM_DATA_SYNC, GPIO_OUT);
+    gpio_put(PWM_DATA_SYNC, 1);
+
+    gpio_init(PWM_RESET);
+    gpio_set_dir(PWM_RESET, GPIO_OUT);
+    gpio_put(PWM_RESET, 0);
+    sleep_ms(2);
+    gpio_put(PWM_RESET, 1);
+
     gpio_init(PWM_SYNC);
     gpio_set_dir(PWM_SYNC, GPIO_OUT);
     gpio_put(PWM_SYNC, 1);
 
-    uint32_t spi_txf = 0;
+    uint8_t spi_txf[40] = {0, 0, 0, 0, 0x0U};
+    for (int i = 0; i < 40; i++)
+    {
+        spi_txf[i] = 0;
+    }
+    for (int i = 0; i < 8; i++)
+    {
+        duty_change(spi_txf, i, 0.1f);
+    }
+
+    spi_txf[1*5 + 1] = 0x2U;
+
+    uint32_t count = 0;
+    sleep_ms(200);
+    float pwm1_duty = 0.1f;
     while (1)
     {
-        spi_txf += 0xff0000U;
-        if (spi_txf > 0x10000000U)
+        // if (count == 32)
+        // {
+        //     break;
+        // }
+        duty_change(spi_txf, 1, pwm1_duty);
+        pwm1_duty += 0.1f;
+        if (pwm1_duty > 1.0f)
         {
-            spi_txf = 0U;
+            pwm1_duty = 0.0f;
         }
-        spi_write16_blocking(spi_default, (uint16_t *)(&spi_txf), 2);
-        sleep_ms(1000);
+        gpio_put(PWM_DATA_SYNC, 0);
+        spi_write_blocking(spi_default, spi_txf, 40);
+        gpio_put(PWM_DATA_SYNC, 1);
+        count++;
+        sleep_us(50);
     }
 }

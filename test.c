@@ -158,6 +158,7 @@ uint8_t init_system()
 #include "clock.pio.h"
 
 #define PWM_SYNC_IN_PIN 22
+#define PWM_DATA_SYNC_IN_PIN 15
 #define CLOCK_OUT_PIN 21
 #define CLOCK_OUT_DIV 20
 #define ADDR_0 26
@@ -166,7 +167,7 @@ uint8_t init_system()
 #define SPI_FREQ 20000000
 
 #define NUM_OF_PWM_CHANNEL 8
-#define UP_DOWN 1
+#define UP_DOWN 0
 #define COMPLEMENTARY 0
 #define PWM_PERIOD 0x1000U
 
@@ -276,22 +277,67 @@ void pwm_pio_dma_config(volatile pwm_pio_t *pwm)
     dma_channel_start(dma_chan);
 }
 
-void __time_critical_func(core1_main)(void)
-{
-    volatile uint8_t spi_rxf[5];
-    while(1)
-    {
-        for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
-        {
-            spi_read_blocking(spi_default, 0, spi_rxf, 5);
-            (pwms + i)->phase_period = spi_rxf[1] + spi_rxf[2] << 8;
-            (pwms + i)->duty = spi_rxf[3] + spi_rxf[4] << 8;
+int __not_in_flash_func(spi_flush)(spi_inst_t *spi, uint8_t repeated_tx_data, uint8_t *dst, size_t len) {
+    invalid_params_if(SPI, 0 > (int)len);
+    const size_t fifo_depth = 8;
+    size_t rx_remaining = len, tx_remaining = len;
+    uint8_t try = 0;
 
-            if ((pwms + i)->phase_period != 0)
-            {
-                (pwms + i)->phase_change = true;
+    while (true) {
+        if (spi_is_writable(spi)) {
+            spi_get_hw(spi)->dr = (uint32_t) repeated_tx_data;
+        }
+        if (spi_is_readable(spi)) {
+            *dst++ = (uint8_t) spi_get_hw(spi)->dr;
+        } else {
+            try++;
+            if (try > 8) {
+                return 0;
             }
         }
+    }
+
+    return (int)len;
+}
+
+volatile uint8_t pwm_rxf[5*NUM_OF_PWM_CHANNEL];
+
+#define PWM_RX_BUF_SIZE 5*NUM_OF_PWM_CHANNEL
+
+void __time_critical_func(core1_main)(void)
+{
+    gpio_init(PWM_DATA_SYNC_IN_PIN);
+    gpio_set_dir(PWM_DATA_SYNC_IN_PIN, GPIO_IN);
+    gpio_pull_up(PWM_DATA_SYNC_IN_PIN);
+    // gpio_set_irq_enabled_with_callback(PWM_DATA_SYNC_IN_PIN, GPIO_IRQ_EDGE_FALL, true, &pwm_dma_trigger);
+
+    while(true) {
+        spi_read_blocking(spi_default, 0, pwm_rxf, PWM_RX_BUF_SIZE);
+        // putchar_raw('F');
+        // if (pwm_rxf_ptr == pwm_rxf + 5*NUM_OF_PWM_CHANNEL*31)
+        // {
+        //     for (int j = 0; j < 31; j++)
+        //     {
+        //         for (int i = 0; i < 5*NUM_OF_PWM_CHANNEL; i++)
+        //         {
+        //             // printf("%d ", pwm_rxf[i + j * (5*NUM_OF_PWM_CHANNEL)]);
+        //             if (pwm_rxf[i + j * (5*NUM_OF_PWM_CHANNEL)] != i)
+        //             {
+        //                 putchar_raw('K');
+        //             }
+        //         }
+        //         printf("\n");
+        //     }
+        // }
+        for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
+        {
+            pwms[i].duty = (pwm_rxf[5*i + 1] << 8) + pwm_rxf[5*i + 2];
+        }
+    }
+
+    while(1)
+    {
+        tight_loop_contents();
     }
 }
 
@@ -391,18 +437,30 @@ int  __time_critical_func(main)(void)
         pio_enable_sm_mask_in_sync(pio1, 0b1111);
     }
 
-    for (uint32_t i = 0; i < 10000000; i++)
-    {
-        pwms[1].phase_period = 0x800;
-        pwms[1].phase_change = true;
+    // for (uint32_t i = 0; i < 100000; i++)
+    // {
+    //     pwms[1].phase_period = 0x800;
+    //     pwms[1].duty += 0x100U;
+    //     if (pwms[1].duty > PWM_PERIOD)
+    //     {
+    //         pwms[1].duty = 0x0U;
+    //     }
+    //     pwms[1].phase_change = true;
 
-        sleep_us(100);
+    //     sleep_us(100);
 
-        pwms[1].phase_period = PWM_PERIOD - 3 - 0x800;
-        pwms[1].phase_change = true;
+    //     pwms[1].phase_period = PWM_PERIOD - 3 - 0x800;
+    //     pwms[1].duty += 0x100U;
+    //     if (pwms[1].duty > PWM_PERIOD)
+    //     {
+    //         pwms[1].duty = 0x0U;
+    //     }
+    //     pwms[1].phase_change = true;
 
-        sleep_us(100);
-    }
+    //     sleep_us(100);
+    // }
+
+    // pwms[1].duty = 0x100U;
 
     multicore_reset_core1();
     multicore_launch_core1(core1_main);
