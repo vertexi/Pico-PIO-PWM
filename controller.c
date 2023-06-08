@@ -172,8 +172,8 @@ int  __time_critical_func(main)(void)
     spi_init(spi_default, SPI_FREQ);
     spi_set_format(spi_default,
                    8,          // number of bits per transfer
-                   SPI_CPOL_1, // polarity CPOL
-                   SPI_CPHA_0, // phase CPHA
+                   SPI_CPOL_0, // polarity CPOL
+                   SPI_CPHA_1, // phase CPHA
                    SPI_MSB_FIRST);
     printf("spi freq: %u\n", spi_get_baudrate(spi_default));
     gpio_set_function(PICO_DEFAULT_SPI_RX_PIN, GPIO_FUNC_SPI);

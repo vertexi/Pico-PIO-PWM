@@ -269,9 +269,11 @@ void __time_critical_func(phase_change)(volatile pwm_pio_t *pwm, uint16_t phase)
     pwm->phase_change = true;
 }
 
-volatile uint8_t pwm_rxf[5*NUM_OF_PWM_CHANNEL];
+#define TOTALNUM_OF_PWM_CHANNEL 8
+volatile uint8_t pwm_rxf[5*TOTALNUM_OF_PWM_CHANNEL*32];
+uint8_t* pwm_rxf_ptr = pwm_rxf;
 
-#define PWM_RX_BUF_SIZE 5*NUM_OF_PWM_CHANNEL
+#define PWM_RX_BUF_SIZE 5*TOTALNUM_OF_PWM_CHANNEL
 
 void __time_critical_func(core1_main)(void)
 {
@@ -280,25 +282,28 @@ void __time_critical_func(core1_main)(void)
     gpio_pull_up(PWM_DATA_SYNC_IN_PIN);
     // gpio_set_irq_enabled_with_callback(PWM_DATA_SYNC_IN_PIN, GPIO_IRQ_EDGE_FALL, true, &pwm_dma_trigger);
 
+    // pwm_rxf_ptr = pwm_rxf;
+    // while(true)
+    // {
+    //     spi_read_blocking(spi_default, 0, pwm_rxf_ptr, PWM_RX_BUF_SIZE);
+    //     pwm_rxf_ptr += PWM_RX_BUF_SIZE;
+    //     if (pwm_rxf_ptr == pwm_rxf + 5*NUM_OF_PWM_CHANNEL*31)
+    //     {
+    //         for (int j = 0; j < 31; j++)
+    //         {
+    //             for (int i = 0; i < 5*NUM_OF_PWM_CHANNEL; i++)
+    //             {
+    //                 printf("%d ", pwm_rxf[i + j * (5*NUM_OF_PWM_CHANNEL)]);
+    //             }
+    //             printf("\n");
+    //         }
+    //         break;
+    //     }
+    // }
+
     while(true) {
-        spi_read_blocking(spi_default, 0, pwm_rxf, PWM_RX_BUF_SIZE);
-        // putchar_raw('F');
-        // if (pwm_rxf_ptr == pwm_rxf + 5*NUM_OF_PWM_CHANNEL*31)
-        // {
-        //     for (int j = 0; j < 31; j++)
-        //     {
-        //         for (int i = 0; i < 5*NUM_OF_PWM_CHANNEL; i++)
-        //         {
-        //             // printf("%d ", pwm_rxf[i + j * (5*NUM_OF_PWM_CHANNEL)]);
-        //             if (pwm_rxf[i + j * (5*NUM_OF_PWM_CHANNEL)] != i)
-        //             {
-        //                 putchar_raw('K');
-        //             }
-        //         }
-        //         printf("\n");
-        //     }
-        // }
-        for (int i = 0; i < NUM_OF_PWM_CHANNEL; i++)
+        spi_read_blocking(spi_default, 0, (uint8_t *)pwm_rxf, PWM_RX_BUF_SIZE);
+        for (int i = 0; i < TOTALNUM_OF_PWM_CHANNEL; i++)
         {
             if (pwm_rxf[5*i + 0] == PWM_ADDR)
             {
@@ -331,8 +336,8 @@ int  __time_critical_func(main)(void)
     spi_set_slave(spi_default, true);
     spi_set_format(spi_default,
                    8,          // number of bits per transfer
-                   SPI_CPOL_1, // polarity CPOL
-                   SPI_CPHA_0, // phase CPHA
+                   SPI_CPOL_0, // polarity CPOL
+                   SPI_CPHA_1, // phase CPHA
                    SPI_MSB_FIRST);
     gpio_set_function(PICO_DEFAULT_SPI_RX_PIN, GPIO_FUNC_SPI);
     gpio_set_function(PICO_DEFAULT_SPI_SCK_PIN, GPIO_FUNC_SPI);
